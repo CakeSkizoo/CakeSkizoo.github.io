@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Presensi - Dengan Foto</title>
+  <style>
+    :root{
+      --bg:#f6f8fb;--card:#ffffff;--muted:#6b7280;--accent:#2563eb;--success:#16a34a;
+      --danger:#ef4444;--warning:#f59e0b;
+    }
+    *{box-sizing:border-box;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial}
+    body{margin:0;background:var(--bg);color:#111}
+    .container{max-width:1100px;margin:28px auto;padding:20px}
+    .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 6px 18px rgba(16,24,40,0.06)}
+    h1{margin:0 0 8px;font-size:20px}
+    p.lead{margin:0 0 16px;color:var(--muted)}
+    .grid{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .input,select,button{padding:10px 12px;border-radius:8px;border:1px solid #e6e9ef;background:#fff}
+    .input:focus,select:focus{outline:none;box-shadow:0 0 0 4px rgba(37,99,235,0.08)}
+    .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:middle}
+    th{background:#fbfdff;font-weight:600}
+    .status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
+    .present{background:var(--success)}
+    .absent{background:var(--danger)}
+    .late{background:var(--warning)}
+    .actions button{margin-right:6px}
+    .small{font-size:13px;color:var(--muted)}
+    .right{margin-left:auto}
+    .toolbar{display:flex;gap:8px;align-items:center}
+    .empty{padding:24px;text-align:center;color:var(--muted)}
+    .thumb{width:48px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #e6e9ef;cursor:pointer}
+    /* Camera modal / area */
+    .cam-pane{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:12px}
+    .video-wrap{display:flex;flex-direction:column;gap:8px}
+    video{width:320px;height:240px;background:#000;border-radius:8px;border:1px solid #e6e9ef}
+    canvas{display:none}
+    .photo-preview{width:80px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e6e9ef}
+    /* Modal for full image */
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:9999}
+    .modal .content{background:#fff;padding:12px;border-radius:8px;max-width:90%;max-height:90%;overflow:auto}
+    .modal img{max-width:100%;max-height:80vh;display:block}
+    .meta-row{display:flex;gap:12px;align-items:center}
+    @media (max-width:780px){
+      .video-wrap video{width:240px;height:180px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Form Presensi (dengan Foto)</h1>
+      <p class="lead">Ambil foto peserta lewat kamera lalu tekan <strong>Tambah</strong>. Status hadir/terlambat otomatis (batas 07:00, toleransi 15 menit). Data tersimpan di browser (localStorage).</p>
+
+      <div class="grid">
+        <input id="nameInput" class="input" placeholder="Nama peserta / NIM" aria-label="Nama" />
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="openCamBtn" class="input" style="cursor:pointer;background:#fff">Ambil Foto</button>
+          <img id="photoPreviewSmall" class="photo-preview" alt="Preview foto" style="display:none" />
+        </div>
+        <button id="addBtn" class="input" style="cursor:pointer;background:var(--accent);color:#fff;border:none">Tambah</button>
+
+        <div class="right toolbar">
+          <input id="search" class="input" placeholder="Cari nama / NIM" />
+          <button id="exportBtn" class="input" style="cursor:pointer">Ekspor CSV</button>
+          <button id="clearBtn" class="input" style="cursor:pointer;background:#fee2e2;border-color:#fecaca">Hapus Semua</button>
+        </div>
+      </div>
+
+      <!-- Camera area (hidden by default) -->
+      <div id="camArea" class="cam-pane" style="display:none">
+        <div class="video-wrap">
+          <video id="video" autoplay playsinline></video>
+          <div style="display:flex;gap:8px">
+            <button id="captureBtn" class="input" style="cursor:pointer;background:var(--success);color:#fff;border:none">Capture</button>
+            <button id="retakeBtn" class="input" style="cursor:pointer;display:none">Ambil Ulang</button>
+            <button id="closeCamBtn" class="input" style="cursor:pointer;background:#fff">Tutup Kamera</button>
+          </div>
+          <small class="small">Gunakan kamera depan/back sesuai perangkat.</small>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:13px;color:var(--muted)">Preview Foto:</div>
+          <img id="photoPreview" class="photo-preview" alt="Preview foto" style="display:none" />
+          <div style="font-size:12px;color:var(--muted)">Jika sudah cocok, klik <strong>Tambah</strong> untuk menyimpan bersama data.</div>
+        </div>
+      </div>
+
+      <table aria-label="Tabel Presensi" id="attendanceTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Foto</th>
+            <th>Nama / NIM</th>
+            <th>Status</th>
+            <th>Waktu</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="6" class="empty">Belum ada data. Tambahkan peserta di atas.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="footer small" style="margin-top:12px;display:flex;justify-content:space-between">
+        <div>Jumlah: <span id="count">0</span></div>
+        <div>Terakhir disimpan: <span id="lastSaved">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal untuk melihat gambar penuh -->
+  <div id="modal" class="modal" role="dialog" aria-hidden="true">
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="meta-row"><strong id="modalName"></strong></div>
+        <button id="modalClose" class="input" style="cursor:pointer">Tutup</button>
+      </div>
+      <img id="modalImg" alt="Foto presensi penuh" />
+    </div>
+  </div>
+
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <script>
+    // Storage key
+    const STORAGE_KEY = 'presensi_with_photo_v1';
+
+    // Elements
+    const nameInput = document.getElementById('nameInput');
+    const addBtn = document.getElementById('addBtn');
+    const tbody = document.getElementById('tbody');
+    const countEl = document.getElementById('count');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const search = document.getElementById('search');
+    const lastSaved = document.getElementById('lastSaved');
+
+    // Camera elements
+    const openCamBtn = document.getElementById('openCamBtn');
+    const camArea = document.getElementById('camArea');
+    const video = document.getElementById('video');
+    const captureBtn = document.getElementById('captureBtn');
+    const retakeBtn = document.getElementById('retakeBtn');
+    const closeCamBtn = document.getElementById('closeCamBtn');
+    const canvas = document.getElementById('canvas');
+    const photoPreview = document.getElementById('photoPreview');
+    const photoPreviewSmall = document.getElementById('photoPreviewSmall');
+
+    // Modal
+    const modal = document.getElementById('modal');
+    const modalImg = document.getElementById('modalImg');
+    const modalName = document.getElementById('modalName');
+    const modalClose = document.getElementById('modalClose');
+
+    let stream = null;
+    let currentPhotoDataUrl = null; // holds last captured image
+    let data = loadData();
+    render();
+
+    // Events
+    addBtn.addEventListener('click', addEntry);
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addEntry(); });
+    exportBtn.addEventListener('click', exportCSV);
+    clearBtn.addEventListener('click', clearAll);
+    search.addEventListener('input', () => render(search.value.trim()));
+
+    openCamBtn.addEventListener('click', openCamera);
+    captureBtn.addEventListener('click', capturePhoto);
+    retakeBtn.addEventListener('click', () => { currentPhotoDataUrl = null; photoPreview.style.display = 'none'; photoPreviewSmall.style.display='none'; retakeBtn.style.display='none'; captureBtn.style.display='inline-block'; });
+    closeCamBtn.addEventListener('click', closeCamera);
+
+    modalClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if(e.target === modal) closeModal(); });
+
+    // Time helper
+    function nowISO(){
+      return new Date().toLocaleString();
+    }
+
+    // Late checker: batas 07:00, toleransi 15 menit
+    function checkLate(){
+      const now = new Date();
+      const batas = new Date();
+      batas.setHours(7, 0, 0, 0);
+      const toleransi = 15;
+      const batasTelat = new Date(batas.getTime() + toleransi * 60000);
+      return now > batasTelat ? "late" : "present";
+    }
+
+    // Camera functions
+    async function openCamera(){
+      // show camera area
+      camArea.style.display = 'flex';
+      // request camera
+      try{
+        // prefer environment (rear) camera on mobile if available
+        const constraints = { video: { width: {ideal:640}, height:{ideal:480}, facingMode: "user" }, audio: false };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        video.play();
+        // reset any previous photo
+        currentPhotoDataUrl = null;
+        photoPreview.style.display = 'none';
+        photoPreviewSmall.style.display = 'none';
+        retakeBtn.style.display = 'none';
+        captureBtn.style.display = 'inline-block';
+      }catch(err){
+        alert('Tidak dapat membuka kamera: ' + (err.message || err));
+      }
+    }
+
+    function closeCamera(){
+      camArea.style.display = 'none';
+      if(stream){
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+    }
+
+    function capturePhoto(){
+      // draw current video frame to canvas then get dataURL
+      const ctx = canvas.getContext('2d');
+      // set canvas to video size
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // you can reduce image quality by jpeg quality param if needed
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      currentPhotoDataUrl = dataUrl;
+      photoPreview.src = dataUrl;
+      photoPreview.style.display = 'block';
+      photoPreviewSmall.src = dataUrl;
+      photoPreviewSmall.style.display = 'inline-block';
+      // switch buttons
+      retakeBtn.style.display = 'inline-block';
+      captureBtn.style.display = 'none';
+    }
+
+    // Add entry
+    function addEntry(){
+      const name = nameInput.value.trim();
+      if(!name){ alert('Masukkan nama atau NIM peserta.'); return; }
+
+      // status auto
+      const status = checkLate();
+      const entry = {
+        id: Date.now(),
+        name,
+        status,
+        time: nowISO(),
+        photo: currentPhotoDataUrl || '' // if empty string, no photo
+      };
+      data.unshift(entry);
+      saveData();
+      // clear inputs
+      nameInput.value = '';
+      currentPhotoDataUrl = null;
+      photoPreview.style.display = 'none';
+      photoPreviewSmall.style.display = 'none';
+      // optionally keep camera open; for now keep it open so user can add multiple quickly
+      render();
+    }
+
+    // Render table
+    function render(filter=''){
+      tbody.innerHTML = '';
+      const list = data.filter(item => item.name.toLowerCase().includes(filter.toLowerCase()));
+      if(list.length === 0){
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="6" class="empty">Belum ada data. Tambahkan peserta di atas.</td></tr>';
+      } else {
+        list.forEach((item, idx) => {
+          const tr = document.createElement('tr');
+          const photoCell = item.photo ? `<img src="${item.photo}" class="thumb" alt="Foto" onclick="openModal('${item.id}')">` : `<div style="width:48px;height:36px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px">No<br>Photo</div>`;
+          tr.innerHTML = `
+            <td style="width:36px">${idx+1}</td>
+            <td style="width:64px">${photoCell}</td>
+            <td>${escapeHtml(item.name)}</td>
+            <td><span class="status-dot ${item.status}"></span>${capitalize(item.status)}</td>
+            <td style="white-space:nowrap">${item.time}</td>
+            <td style="white-space:nowrap">
+              <button onclick="editEntry(${item.id})">Edit</button>
+              <button onclick="toggleStatus(${item.id})">Ubah Status</button>
+              <button onclick="deleteEntry(${item.id})" style="background:#fee2e2;border-color:#fecaca">Hapus</button>
+              ${item.photo ? `<button onclick="downloadPhoto(${item.id})">Unduh Foto</button>` : ''}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+      countEl.textContent = data.length;
+      lastSaved.textContent = localStorage.getItem(STORAGE_KEY + '_meta') || '-';
+    }
+
+    // Save/load
+    function saveData(){
+      try{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        localStorage.setItem(STORAGE_KEY + '_meta', new Date().toLocaleString());
+      }catch(e){
+        console.error('Gagal menyimpan ke localStorage:', e);
+        alert('Gagal menyimpan data. localStorage mungkin penuh.');
+      }
+    }
+
+    function loadData(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      }catch(e){ console.error(e); return []; }
+    }
+
+    // Export CSV (photo included as data URL in CSV)
+    function exportCSV(){
+      if(data.length === 0){ alert('Tidak ada data untuk diekspor.'); return; }
+      const header = ['No','Nama','Status','Waktu','PhotoDataURL'];
+      const rows = data.map((r,i) => [i+1, r.name, r.status, r.time, r.photo || '']);
+      // CSV escape
+      const csv = [header, ...rows].map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'presensi_with_photo.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // Clear all
+    function clearAll(){
+      if(!confirm('Yakin ingin menghapus semua data?')) return;
+      data = [];
+      saveData();
+      render();
+    }
+
+    // Window-exposed actions (for inline onclick)
+    window.deleteEntry = function(id){
+      if(!confirm('Hapus peserta ini?')) return;
+      data = data.filter(d => d.id !== id);
+      saveData(); render();
+    }
+
+    window.editEntry = function(id){
+      const idx = data.findIndex(d => d.id === id);
+      if(idx === -1) return;
+      const newName = prompt('Ubah nama / NIM:', data[idx].name);
+      if(newName === null) return;
+      data[idx].name = newName.trim() || data[idx].name;
+      data[idx].time = nowISO();
+      saveData(); render();
+    }
+
+    window.toggleStatus = function(id){
+      const idx = data.findIndex(d => d.id === id);
+      if(idx === -1) return;
+      const order = ['present','late','absent'];
+      const current = data[idx].status;
+      const next = order[(order.indexOf(current)+1) % order.length];
+      data[idx].status = next;
+      data[idx].time = nowISO();
+      saveData(); render();
+    }
+
+    // download photo as file
+    window.downloadPhoto = function(id){
+      const item = data.find(d => d.id === id);
+      if(!item || !item.photo){ alert('Foto tidak ditemukan.'); return; }
+      const a = document.createElement('a');
+      a.href = item.photo;
+      a.download = `${sanitizeFilename(item.name || 'photo')}_${id}.jpg`;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    // Modal open for full image
+    window.openModal = function(id){
+      const item = data.find(d => d.id === id);
+      if(!item || !item.photo) return;
+      modalImg.src = item.photo;
+      modalName.textContent = item.name + ' — ' + capitalize(item.status) + ' — ' + item.time;
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden','false');
+    }
+
+    function closeModal(){
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden','true');
+      modalImg.src = '';
+    }
+
+    // Helpers
+    function capitalize(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+    function escapeHtml(unsafe){
+      return String(unsafe).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#039;"}[m]; });
+    }
+    function sanitizeFilename(name){
+      return String(name).replace(/[^a-z0-9_\-]/gi, '_').substring(0,120);
+    }
+
+    // On load: try to show small preview if last entry had photo (optional)
+    (function initSmallPreview(){
+      if(data.length > 0 && data[0].photo){
+        photoPreviewSmall.src = data[0].photo;
+        photoPreviewSmall.style.display = 'inline-block';
+      }
+    })();
+
+    // Accessibility: close camera/stream on unload
+    window.addEventListener('beforeunload', () => {
+      if(stream){
+        stream.getTracks().forEach(t => t.stop());
+      }
+    });
+  </script>
+</body>
+</html>
